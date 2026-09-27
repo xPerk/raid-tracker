@@ -10,6 +10,8 @@ internet salvo para sincronizar.
 
 *Raid Tracker no está afiliado a Battlestate Games ni a tarkov.dev.*
 
+![Planificar raid: mapa de Customs con los objetivos numerados, la mochila y la lista de objetivos](docs/screenshots/planificar-raid.png)
+
 ## Descargar
 
 1. Ve a [Releases](https://github.com/xPerk/raid-tracker/releases/latest) y
@@ -68,6 +70,23 @@ Requiere Windows 10 u 11.
   desbloquea.
 
 El nivel del personaje se ajusta a mano: el juego no lo escribe en sus logs.
+
+## Capturas
+
+**Planificar raid**: al pulsar un objetivo, el mapa va hasta él y cambia a su
+planta (aquí, la habitación 303 en la 3ª planta de los dormitorios).
+
+![Planificar raid con zoom en los dormitorios de Customs y el objetivo resaltado en la 3ª planta](docs/screenshots/planificar-raid-mapa.png)
+
+**Lista y detalle**: misiones del personaje de temporada, con sus objetivos,
+requisitos, lo que desbloquean y recompensas.
+
+![Lista de misiones con el detalle de Químico - Parte 2](docs/screenshots/lista.png)
+
+**Árbol**: todas las cadenas de misiones con sus requisitos de nivel y
+comerciante; la cadena de la misión elegida queda resaltada.
+
+![Vista árbol con la cadena de Químico resaltada](docs/screenshots/arbol.png)
 
 ## Tus datos
 
