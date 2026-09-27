@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff2d2d" stop-opacity="0.85"/>
+      <stop offset="45%" stop-color="#ff2d2d" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ff2d2d" stop-opacity="0"/>
+    </radialGradient>
+    <pattern id="dots" width="8" height="8" patternUnits="userSpaceOnUse">
+      <circle cx="4" cy="4" r="0.9" fill="#ffffff" fill-opacity="0.06"/>
+    </pattern>
+  </defs>
+
+  <!-- Fondo: negro con retícula de puntos, como la app -->
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="#0a0a0a"/>
+  <rect x="8" y="8" width="240" height="240" rx="44" fill="url(#dots)"/>
+  <rect x="9.5" y="9.5" width="237" height="237" rx="42.5" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="3"/>
+
+  <!-- Mira: anillo con cortes y marcas -->
+  <g fill="none" stroke="#f2f2f0" stroke-linecap="round">
+    <circle cx="128" cy="128" r="70" stroke-width="12" stroke-dasharray="84 26" transform="rotate(-38 128 128)"/>
+    <line x1="128" y1="30" x2="128" y2="62" stroke-width="12"/>
+    <line x1="128" y1="194" x2="128" y2="226" stroke-width="12"/>
+    <line x1="30" y1="128" x2="62" y2="128" stroke-width="12"/>
+    <line x1="194" y1="128" x2="226" y2="128" stroke-width="12"/>
+  </g>
+
+  <!-- Punto rojo del logo, con resplandor -->
+  <circle cx="128" cy="128" r="46" fill="url(#glow)"/>
+  <circle cx="128" cy="128" r="21" fill="#ff2d2d"/>
+</svg>

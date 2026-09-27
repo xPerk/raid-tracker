@@ -1,0 +1,40 @@
+{
+  "name": "tarkov-quest-tracker",
+  "version": "1.0.0",
+  "description": "Raid Tracker: rastreador de misiones y planificador de raids para Escape from Tarkov, con datos de tarkov.dev",
+  "main": "src/main.js",
+  "author": "xPerk",
+  "license": "MIT",
+  "homepage": "https://github.com/xPerk/raid-tracker",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/xPerk/raid-tracker.git"
+  },
+  "bugs": {
+    "url": "https://github.com/xPerk/raid-tracker/issues"
+  },
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.xperk.raidtracker",
+    "productName": "Raid Tracker",
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    }
+  }
+}

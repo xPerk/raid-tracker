@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; script-src 'self'; connect-src 'self';" />
+<title>RAID // TRACKER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="dot-overlay" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <span class="brand-stack">
+        <span class="brand-text">RAID<span class="brand-slash">//</span>TRACKER</span>
+        <span class="brand-sign">By xPerk</span>
+      </span>
+    </div>
+
+    <div class="topbar-controls">
+      <div class="character-switch" id="characterSwitch" role="radiogroup" aria-label="Personaje">
+        <button class="char-btn" role="radio" data-character="permanent">PERMANENTE</button>
+        <button class="char-btn" role="radio" data-character="seasonal">TEMPORADA</button>
+      </div>
+
+      <label class="level-field">
+        <span>NIVEL</span>
+        <input id="playerLevel" type="number" min="1" max="79" value="1" />
+      </label>
+
+      <div class="search-field">
+        <span class="glyph">◎</span>
+        <input id="searchInput" type="text" placeholder="BUSCAR MISIÓN O ÍTEM..." autocomplete="off" />
+      </div>
+
+      <button id="plannerBtn" class="btn btn-raid" title="Planificar raid (R)">
+        <span class="raid-dot"></span> PLANIFICAR RAID <span id="plannerBadge" class="raid-badge" hidden></span>
+      </button>
+
+      <button id="refreshBtn" class="btn btn-outline" title="Sincronizar misiones con tarkov.dev">
+        <span class="btn-dot"></span><span class="btn-label">SINCRONIZAR</span>
+      </button>
+    </div>
+  </header>
+
+  <div id="statusBar" class="status-bar hidden"></div>
+
+  <main class="layout">
+
+    <!-- LEFT: filters -->
+    <aside class="panel panel-filters">
+      <section class="filter-group" id="statusGroup">
+        <h3>ESTADO</h3>
+        <div class="chip-row" id="statusFilters">
+          <button class="chip active" data-status="all">TODAS</button>
+          <button class="chip" data-status="available">DISPONIBLES</button>
+          <button class="chip" data-status="locked">BLOQUEADAS</button>
+        </div>
+      </section>
+
+      <section class="filter-group">
+        <h3>COMERCIANTE</h3>
+        <div class="chip-row" id="traderFilters"></div>
+      </section>
+
+      <section class="filter-group">
+        <h3>MAPA</h3>
+        <div class="chip-row" id="mapFilters"></div>
+      </section>
+
+      <section class="filter-group">
+        <label class="toggle-row">
+          <input type="checkbox" id="kappaToggle" />
+          <span>SOLO REQUISITO KAPPA</span>
+        </label>
+      </section>
+
+      <section class="filter-group">
+        <h3>PROGRESO DEL JUEGO</h3>
+        <p id="gameLogStatus" class="empty-hint">Buscando los logs de Tarkov...</p>
+        <button id="gameLogFolderBtn" class="btn btn-small">ELEGIR CARPETA DEL JUEGO</button>
+      </section>
+
+      <section class="filter-group grow">
+        <h3>ÍTEMS FIR PENDIENTES</h3>
+        <div id="firList" class="fir-list">
+          <p class="empty-hint">Acepta misiones para ver qué ítems necesitas.</p>
+        </div>
+      </section>
+    </aside>
+
+    <!-- CENTER: task list -->
+    <section class="panel panel-list">
+      <div class="list-header">
+        <div class="mode-tabs" id="modeTabs" role="tablist" aria-label="Modo de vista">
+          <button class="mode-tab" role="tab" data-mode="accepted">ACEPTADAS <span class="mode-count"></span></button>
+          <button class="mode-tab" role="tab" data-mode="all">TODAS <span class="mode-count"></span></button>
+          <button class="mode-tab" role="tab" data-mode="completed">COMPLETADAS <span class="mode-count"></span></button>
+        </div>
+        <div class="list-meta">
+          <span id="resultCount">0 MISIONES</span>
+          <div class="lang-switch" id="viewSwitch" role="radiogroup" aria-label="Vista">
+            <button class="lang-btn" role="radio" data-view="list">LISTA</button>
+            <button class="lang-btn" role="radio" data-view="map">ÁRBOL</button>
+          </div>
+          <div class="lang-switch" id="nameLangSwitch" role="radiogroup" aria-label="Idioma de los nombres">
+            <span>NOMBRES</span>
+            <button class="lang-btn" role="radio" data-lang="es">ES</button>
+            <button class="lang-btn" role="radio" data-lang="en">EN</button>
+          </div>
+        </div>
+      </div>
+      <div id="taskList" class="task-list"></div>
+      <div id="taskMap" class="map-scroll" hidden></div>
+    </section>
+
+    <!-- RIGHT: task detail -->
+    <aside class="panel panel-detail" id="detailPanel">
+      <div class="empty-detail">
+        <span class="empty-glyph">▢</span>
+        <p>SELECCIONA UNA MISIÓN<br/>PARA VER SUS PASOS</p>
+      </div>
+    </aside>
+
+  </main>
+
+  <div id="raidPlanner" class="raid-planner" role="dialog" aria-label="Planificar raid" hidden></div>
+
+  <script src="taskmap.js"></script>
+  <script src="raidplanner.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
