@@ -13,7 +13,7 @@ internet salvo para sincronizar.
 ## Descargar
 
 1. Ve a [Releases](https://github.com/xPerk/raid-tracker/releases/latest) y
-   descarga **`Raid Tracker Setup x.y.z.exe`**.
+   descarga el instalador `.exe` de la sección *Assets*.
 2. Ejecútalo: se instala solo para tu usuario, sin pedir opciones.
 3. Windows puede mostrar un aviso de SmartScreen porque el instalador no está
    firmado con un certificado de pago. Pulsa **Más información → Ejecutar de

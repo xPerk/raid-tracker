@@ -29,6 +29,9 @@
       "target": "nsis",
       "icon": "build/icon.ico"
     },
+    "nsis": {
+      "artifactName": "Raid-Tracker-Setup-${version}.${ext}"
+    },
     "files": [
       "src/**/*",
       "package.json"
