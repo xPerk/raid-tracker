@@ -1,0 +1,50 @@
+# Compila el instalador de Windows y lo adjunta a la Release de GitHub.
+# Se ejecuta al publicar una Release (o a mano, indicando la etiqueta).
+name: Instalador de Windows
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Etiqueta de la Release (p. ej. v1.1.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Compilar instalador
+        run: npx electron-builder --win --publish never
+
+      - name: Adjuntar a la Release
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release -Filter '*.exe' | Select-Object -First 1
+          if (-not $exe) { throw 'No se generó el instalador' }
+          gh release upload $env:TAG $exe.FullName --clobber
+          # Añade el SHA-256 del instalador a las notas de la Release.
+          $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+          $body = gh release view $env:TAG --json body --jq .body
+          $body = ($body -replace '(?m)^SHA-256 del instalador.*$', '').TrimEnd()
+          $body += "`n`nSHA-256 del instalador ($($exe.Name)): ``$hash``"
+          $body | Out-File notes.md -Encoding utf8
+          gh release edit $env:TAG --notes-file notes.md

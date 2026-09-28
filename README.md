@@ -130,6 +130,14 @@ dispone de un privilegio requerido"*, activa el **Modo de desarrollador** de
 Windows o ejecuta la terminal como administrador: electron-builder necesita
 crear enlaces simbólicos al descomprimir sus herramientas.
 
+Si falla con *"spawn UNKNOWN"* o *"Una directiva de Control de aplicaciones
+bloqueó este archivo"*, es el **Control inteligente de aplicaciones** de
+Windows 11, que no deja ejecutar el instalador sin firmar que electron-builder
+genera a mitad del proceso. No hace falta desactivarlo: los instaladores
+oficiales se compilan en GitHub Actions
+([`.github/workflows/release.yml`](.github/workflows/release.yml)) al publicar
+una Release, y en un fork funciona igual.
+
 ### Estructura
 
 | Archivo | Qué hace |
