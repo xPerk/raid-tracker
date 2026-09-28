@@ -3,7 +3,8 @@
 // "Planificar raid": elige un mapa y muestra, en una sola pantalla, lo que
 // hay que llevar (llaves, ítems para esconder, marcadores, equipo), los
 // objetivos de las misiones aceptadas en ese mapa y dónde están, dibujados
-// sobre el mapa de tarkov.dev. Todo se calcula con datos locales, así que
+// sobre el mapa de tarkov.dev junto con extracciones, bosses y contenedores
+// (capas opcionales). Todo se calcula con datos locales, así que
 // cambiar de mapa o de misión es instantáneo.
 //
 // El plan se guarda en el progreso de cada personaje:
@@ -30,6 +31,48 @@ const RaidPlanner = (() => {
   const floorShort = (name) => floorLabel(name).replace(' PLANTA', '').replace('SÓTANO', 'SÓT.');
 
   const LICENSE_URL = 'https://creativecommons.org/licenses/by-nc-sa/4.0/';
+
+  // ---------------- Capas del mapa ----------------
+  //
+  // Extracciones, tránsitos, bosses y contenedores se activan y desactivan
+  // por separado. La elección vale para todos los mapas y se recuerda.
+
+  const LAYERS_KEY = 'tarkov-tracker:mapLayers';
+  const DEFAULT_LAYERS = { pmc: true, shared: true, scav: false, transit: true, boss: true, bossCard: true, containers: [] };
+
+  function loadLayers() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(LAYERS_KEY));
+      if (saved && typeof saved === 'object') {
+        return { ...DEFAULT_LAYERS, ...saved, containers: Array.isArray(saved.containers) ? saved.containers : [] };
+      }
+    } catch { /* sin preferencias guardadas */ }
+    return { ...DEFAULT_LAYERS, containers: [] };
+  }
+
+  function saveLayers(layers) {
+    try {
+      localStorage.setItem(LAYERS_KEY, JSON.stringify(layers));
+    } catch { /* no es grave: solo no se recuerda */ }
+  }
+
+  const FACTION_LABELS = { pmc: 'PMC', scav: 'SCAV', shared: 'PMC Y SCAV' };
+
+  // Tipos de contenedor (normalizedName de tarkov.dev) agrupados por
+  // categoría; los que no estén aquí van a "OTROS".
+  const CONTAINER_CATEGORIES = [
+    { label: 'VALIOSOS', color: '#ffd54f', types: ['safe', 'bank-safe', 'cash-register', 'bank-cash-register', 'pc-block', 'shturmans-stash'] },
+    { label: 'ARMAS Y MUNICIÓN', color: '#ff8a50', types: ['weapon-box', 'grenade-box', 'wooden-ammo-box'] },
+    { label: 'MÉDICOS', color: '#f48fb1', types: ['medcase', 'medbag', 'medical-supply-crate'] },
+    { label: 'SUMINISTROS', color: '#4dd0e1', types: ['technical-supply-crate', 'ration-supply-crate', 'toolbox', 'plastic-suitcase'] },
+    { label: 'ALIJOS', color: '#bcaaa4', types: ['buried-barrel-cache', 'ground-cache'] },
+    { label: 'CUERPOS', color: '#b0bec5', types: ['dead-scav', 'pmc-body', 'scav-body', 'civilian-body', 'lab-technician-body'] },
+    { label: 'COMUNES', color: '#b39ddb', types: ['drawer', 'jacket', 'duffle-bag', 'wooden-crate'] },
+  ];
+  const OTHER_CONTAINERS = { label: 'OTROS', color: '#8d8d8d', types: [] };
+  const containerCategory = (type) => CONTAINER_CATEGORIES.find((c) => c.types.includes(type)) || OTHER_CONTAINERS;
+
+  const pct = (chance) => `${Math.round(chance * 100)}%`;
 
   // ---------------- Datos ----------------
 
@@ -218,24 +261,40 @@ const RaidPlanner = (() => {
       this.ty = 0;
       this.markers = [];
       this.loadToken = 0;
+      this.intel = null;
+      this.layers = loadLayers();
+      this.containerPanelOpen = false;
 
       root.innerHTML = '';
       this.toolbar = el('div', 'rp-map-tools');
+      this.layerBar = el('div', 'rp-layers');
+      this.layerBar.hidden = true;
       this.viewport = el('div', 'rp-map-viewport');
       this.stage = el('div', 'rp-map-stage');
       this.svgHost = el('div', 'rp-map-svg');
+      this.intelLayer = el('div', 'rp-map-intel');
       this.markerLayer = el('div', 'rp-map-markers');
+      this.bossCard = el('div', 'rp-boss-card');
+      this.bossCard.hidden = true;
       this.message = el('div', 'rp-map-message');
       this.credit = el('div', 'rp-map-credit');
-      this.stage.append(this.svgHost, this.markerLayer);
-      this.viewport.append(this.stage, this.message);
-      root.append(this.toolbar, this.viewport, this.credit);
+      this.stage.append(this.svgHost, this.intelLayer, this.markerLayer);
+      this.viewport.append(this.stage, this.bossCard, this.message);
+      root.append(this.toolbar, this.layerBar, this.viewport, this.credit);
       this.bindPanZoom();
+
+      // El desplegable de contenedores se cierra al pulsar fuera de él.
+      document.addEventListener('pointerdown', (e) => {
+        if (this.containerPanelOpen && !e.target.closest('.rp-cont-menu')) {
+          this.containerPanelOpen = false;
+          this.buildLayerBar();
+        }
+      });
     }
 
     bindPanZoom() {
       this.viewport.addEventListener('wheel', (e) => {
-        if (!this.ready) return;
+        if (!this.ready || e.target.closest('.rp-boss-card')) return;
         e.preventDefault();
         const r = this.viewport.getBoundingClientRect();
         this.zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.2 : 1 / 1.2);
@@ -243,7 +302,7 @@ const RaidPlanner = (() => {
 
       let drag = null;
       this.viewport.addEventListener('pointerdown', (e) => {
-        if (!this.ready || e.button !== 0 || e.target.closest('.rp-marker')) return;
+        if (!this.ready || e.button !== 0 || e.target.closest('.rp-marker, .rp-boss-card')) return;
         drag = { x: e.clientX, y: e.clientY, tx: this.tx, ty: this.ty };
         this.viewport.setPointerCapture(e.pointerId);
         this.viewport.classList.add('dragging');
@@ -322,15 +381,17 @@ const RaidPlanner = (() => {
     }
 
     // Cambia de mapa: carga el SVG (de la caché local o de tarkov.dev).
-    async load(key, config, name, getSvg) {
+    async load(key, config, name, getSvg, intel) {
       this.key = key;
       this.config = config;
       this.ready = false;
       this.floor = null;
       this.svgHost.innerHTML = '';
       this.markerLayer.innerHTML = '';
+      this.intelLayer.innerHTML = '';
       this.toolbar.innerHTML = '';
       this.credit.innerHTML = '';
+      this.setIntel(null);
       const token = ++this.loadToken;
 
       if (!config || !config.svgPath) {
@@ -368,6 +429,7 @@ const RaidPlanner = (() => {
       svg.setAttribute('preserveAspectRatio', 'none');
 
       this.buildToolbar();
+      this.setIntel(intel);
       this.setFloor(null);
       if (config.author) {
         const author = config.authorLink
@@ -431,11 +493,239 @@ const RaidPlanner = (() => {
       // Solo se atenúan los puntos de plantas que tienen capa dibujada (y por
       // tanto botón); los de plantas sin dibujo, como la 4ª de Customs, no.
       const drawn = new Set((this.config && this.config.layers || []).filter((l) => l.svgLayer).map((l) => l.name));
-      this.markerLayer.querySelectorAll('.rp-marker').forEach((m) => {
+      this.stage.querySelectorAll('.rp-marker, .rp-intel').forEach((m) => {
         const floor = m.dataset.floor || null;
         const effective = floor && drawn.has(floor) ? floor : null;
         m.classList.toggle('other-floor', effective !== (name || null));
       });
+    }
+
+    // ---- Capas: extracciones, tránsitos, bosses y contenedores ----
+
+    setIntel(intel) {
+      this.intel = intel || null;
+      this.containerPanelOpen = false;
+      this.buildLayerBar();
+      this.drawIntel();
+    }
+
+    toggleLayer(id) {
+      this.layers[id] = !this.layers[id];
+      saveLayers(this.layers);
+      this.buildLayerBar();
+      this.drawIntel();
+    }
+
+    setContainers(types) {
+      this.layers.containers = [...new Set(types)];
+      saveLayers(this.layers);
+      this.buildLayerBar();
+      this.drawIntel();
+    }
+
+    buildLayerBar() {
+      const bar = this.layerBar;
+      // Al redibujar, el desplegable conserva su scroll.
+      const oldPanel = bar.querySelector('.rp-cont-panel');
+      const panelScroll = oldPanel ? oldPanel.scrollTop : 0;
+      bar.innerHTML = '';
+      const it = this.intel;
+      bar.hidden = !it;
+      if (!it) return;
+      const L = this.layers;
+
+      const chip = (id, label, n, cls, title) => {
+        if (!n) return;
+        const b = el('button', `rp-layer ${cls}${L[id] ? ' on' : ''}`);
+        b.innerHTML = `<i></i>${label}<b>${n}</b>`;
+        b.title = title;
+        b.setAttribute('aria-pressed', String(!!L[id]));
+        b.addEventListener('click', () => this.toggleLayer(id));
+        bar.appendChild(b);
+      };
+      const byFaction = (f) => it.extracts.filter((e) => e.faction === f).length;
+      chip('pmc', 'EXTRACCIONES PMC', byFaction('pmc'), 'pmc', 'Extracciones solo para PMC');
+      chip('scav', 'SCAV', byFaction('scav'), 'scav', 'Extracciones solo para Scav');
+      chip('shared', 'COMPARTIDAS', byFaction('shared'), 'shared', 'Extracciones para PMC y Scav');
+      chip('transit', 'TRÁNSITOS', it.transits.length, 'transit', 'Puntos de tránsito a otros mapas');
+      chip('boss', 'BOSSES', it.bosses.length, 'boss', 'Zonas de spawn de bosses y probabilidad');
+
+      // Contenedores: desplegable con los tipos de este mapa por categoría.
+      const counts = {};
+      for (const [type] of it.containers.points) counts[type] = (counts[type] || 0) + 1;
+      const present = Object.keys(counts);
+      if (!present.length) return;
+      const selected = new Set(L.containers);
+      const shown = present.filter((t) => selected.has(t)).length;
+
+      const menu = el('div', 'rp-cont-menu');
+      const toggle = el('button', `rp-layer cont${shown ? ' on' : ''}`);
+      toggle.innerHTML = `<i></i>CONTENEDORES<b>${shown}/${present.length}</b><span class="rp-caret">▾</span>`;
+      toggle.title = 'Elegir qué tipos de contenedor mostrar';
+      toggle.setAttribute('aria-expanded', String(this.containerPanelOpen));
+      toggle.addEventListener('click', () => {
+        this.containerPanelOpen = !this.containerPanelOpen;
+        this.buildLayerBar();
+      });
+      menu.appendChild(toggle);
+
+      if (this.containerPanelOpen) {
+        const panel = el('div', 'rp-cont-panel');
+        const actions = el('div', 'rp-cont-actions');
+        const action = (label, fn) => {
+          const b = el('button', 'rp-zoom-btn');
+          b.textContent = label;
+          b.addEventListener('click', fn);
+          actions.appendChild(b);
+        };
+        action('TODOS', () => this.setContainers([...L.containers, ...present]));
+        action('NINGUNO', () => this.setContainers(L.containers.filter((t) => !present.includes(t))));
+        panel.appendChild(actions);
+
+        const known = new Set(CONTAINER_CATEGORIES.flatMap((c) => c.types));
+        const groups = [...CONTAINER_CATEGORIES, { ...OTHER_CONTAINERS, types: present.filter((t) => !known.has(t)) }];
+        for (const cat of groups) {
+          const types = cat.types.filter((t) => counts[t])
+            .sort((a, b) => it.containers.types[a].localeCompare(it.containers.types[b]));
+          if (!types.length) continue;
+          const all = types.every((t) => selected.has(t));
+          const head = el('label', 'rp-cont-cat');
+          head.style.setProperty('--c', cat.color);
+          const headBox = el('input');
+          headBox.type = 'checkbox';
+          headBox.checked = all;
+          headBox.indeterminate = !all && types.some((t) => selected.has(t));
+          headBox.addEventListener('change', () => this.setContainers(all
+            ? L.containers.filter((t) => !types.includes(t))
+            : [...L.containers, ...types]));
+          head.append(headBox, document.createTextNode(cat.label));
+          panel.appendChild(head);
+          for (const t of types) {
+            const row = el('label', 'rp-cont-type');
+            row.style.setProperty('--c', cat.color);
+            const box = el('input');
+            box.type = 'checkbox';
+            box.checked = selected.has(t);
+            box.addEventListener('change', () => this.setContainers(box.checked
+              ? [...L.containers, t]
+              : L.containers.filter((x) => x !== t)));
+            const name = el('span');
+            name.textContent = it.containers.types[t];
+            const n = el('b');
+            n.textContent = counts[t];
+            row.append(box, el('i'), name, n);
+            panel.appendChild(row);
+          }
+        }
+        menu.appendChild(panel);
+        bar.appendChild(menu);
+        panel.scrollTop = panelScroll;
+        return;
+      }
+      bar.appendChild(menu);
+    }
+
+    drawIntel() {
+      this.intelLayer.innerHTML = '';
+      const it = this.intel;
+      if (!it || !this.config || !this.config.bounds) {
+        this.renderBossCard();
+        return;
+      }
+      const project = projector(this.config);
+      const L = this.layers;
+      const frag = document.createDocumentFragment();
+      const place = (node, p) => {
+        const { u, v } = project(p.x, p.z);
+        node.style.left = `${u * 100}%`;
+        node.style.top = `${v * 100}%`;
+        const floor = floorOf(this.config, p);
+        node.dataset.floor = floor || '';
+        if (floor) node.title += ` (${floorLabel(floor)})`;
+        frag.appendChild(node);
+      };
+      const labelled = (cls, icon, label, title, tags) => {
+        const node = el('div', `rp-intel ${cls}`);
+        node.innerHTML = `<span class="rp-intel-ico">${icon}</span>` +
+          `<span class="rp-intel-label">${escapeHtml(label)}${(tags || []).map((t) => `<em>${escapeHtml(t)}</em>`).join('')}</span>`;
+        node.title = title;
+        return node;
+      };
+
+      // Orden de dibujo: contenedores debajo, extracciones encima.
+      const selected = new Set(L.containers);
+      if (selected.size) {
+        for (const [type, x, y, z] of it.containers.points) {
+          if (!selected.has(type)) continue;
+          const node = el('div', 'rp-intel rp-cont');
+          node.style.setProperty('--c', containerCategory(type).color);
+          node.title = it.containers.types[type];
+          place(node, { x, y, z });
+        }
+      }
+      if (L.boss) {
+        for (const s of it.bossSpots) {
+          place(labelled('rp-boss', '☠', s.bosses.join(' · '), `Spawn de bosses — ${s.zone}: ${s.bosses.join(', ')}`), s);
+        }
+      }
+      if (L.transit) {
+        for (const t of it.transits) place(labelled('rp-transit', '⇄', t.name.toUpperCase(), t.name), t);
+      }
+      for (const e of it.extracts) {
+        if (!L[e.faction]) continue;
+        const tags = [];
+        if (e.secret) tags.push('SECRETA');
+        if (e.pay) tags.push(e.pay);
+        const title = `Extracción ${FACTION_LABELS[e.faction] || ''}: ${e.name}` +
+          `${e.pay ? ` — requiere ${e.pay}` : ''}${e.secret ? ' — secreta' : ''}`;
+        place(labelled(`rp-ext ${e.faction}`, '⬈', e.name.toUpperCase(), title, tags), e);
+      }
+      this.intelLayer.appendChild(frag);
+      this.renderBossCard();
+      if (this.ready) this.setFloor(this.floor);
+    }
+
+    // Recuadro con los bosses del mapa: probabilidad, zonas y escoltas.
+    renderBossCard() {
+      const card = this.bossCard;
+      const it = this.intel;
+      card.innerHTML = '';
+      card.hidden = !(it && it.bosses.length && this.layers.boss);
+      if (card.hidden) return;
+      const collapsed = !this.layers.bossCard;
+      card.classList.toggle('collapsed', collapsed);
+      const head = el('button', 'rp-boss-head');
+      head.innerHTML = `☠ BOSSES <b>${it.bosses.length}</b><span class="rp-caret">${collapsed ? '▸' : '▾'}</span>`;
+      head.title = collapsed ? 'Mostrar detalles' : 'Ocultar detalles';
+      head.addEventListener('click', () => {
+        this.layers.bossCard = !this.layers.bossCard;
+        saveLayers(this.layers);
+        this.renderBossCard();
+      });
+      card.appendChild(head);
+      if (collapsed) return;
+      for (const b of it.bosses) {
+        const row = el('div', 'rp-boss-row');
+        if (b.image) {
+          const img = el('img');
+          img.src = b.image;
+          img.alt = '';
+          img.loading = 'lazy';
+          img.addEventListener('error', () => img.remove());
+          row.appendChild(img);
+        }
+        const notes = [];
+        notes.push(b.zones.length ? b.zones.join(' · ') : 'recorre el mapa');
+        if (b.groups > 1) notes.push(`${b.groups} grupos`);
+        if (b.escorts) notes.push(`+${b.escorts} escolta${b.escorts === 1 ? '' : 's'}`);
+        if (b.time) notes.push(`aparece al min ${Math.round(b.time / 60)}`);
+        if (b.trigger) notes.push('también por evento');
+        const text = el('div', 'rp-boss-text');
+        text.innerHTML = `<div><b>${escapeHtml(b.name)}</b><span class="rp-boss-pct">${pct(b.chance)}</span></div>` +
+          `<small>${escapeHtml(notes.join(' · '))}</small>`;
+        row.appendChild(text);
+        card.appendChild(row);
+      }
     }
 
     setMarkers(markers) {
@@ -773,12 +1063,15 @@ const RaidPlanner = (() => {
       if (key !== lastKey) {
         lastKey = key;
         lastSelectionSig = selectionSig;
-        view.load(key, config, mapName(mapData, key), ctx.getSvg).then((ok) => {
+        view.load(key, config, mapName(mapData, key), ctx.getSvg, (mapData.intel || {})[key]).then((ok) => {
           if (!ok || view.key !== key) return;
           view.setMarkers(latestMarkers);
           view.fit(latestMarkers.filter((m) => !m.done));
         });
       } else if (view.ready) {
+        // Tras sincronizar llegan datos nuevos del mismo mapa.
+        const intel = (mapData.intel || {})[key] || null;
+        if (intel !== view.intel) view.setIntel(intel);
         view.setMarkers(markers);
         if (selectionSig !== lastSelectionSig) view.fit(markers.filter((m) => !m.done));
         lastSelectionSig = selectionSig;

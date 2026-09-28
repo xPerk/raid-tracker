@@ -35,6 +35,12 @@ Requiere Windows 10 u 11.
     de equipo, con casillas para ir empacando.
   - **Mapa** de tarkov.dev con un punto numerado por objetivo y la planta en
     la que está (2ª, 3ª, sótano…). Rueda para zoom, arrastrar para mover.
+  - **Capas del mapa** que se activan y desactivan con un clic (y se
+    recuerdan): extracciones **PMC**, **Scav** y **compartidas** (con las
+    de pago y las secretas marcadas), **tránsitos** a otros mapas, zonas de
+    spawn de **bosses** con un recuadro de probabilidad, escoltas y hora de
+    aparición, y **contenedores** por tipo (cajas de armas, cajas fuertes,
+    alijos, médicos…), agrupados por categoría.
   - **Objetivos** de cada misión en ese mapa, enlazados con los puntos.
   - Las misiones que completas en la raid se tachan solas (logs).
     **NUEVA RAID** vacía la mochila. **Esc** cierra.

@@ -311,6 +311,22 @@ async function fetchJsonFile(name) {
   return json.data;
 }
 
+// Durante una sincronización, cada archivo se descarga una sola vez aunque lo
+// pidan varias partes (misiones, nombres en inglés, mapas).
+let jsonFileMemo = null;
+
+function fetchJsonFileOnce(name) {
+  const download = () => withRetry(() => fetchJsonFile(name));
+  if (!jsonFileMemo) return download();
+  if (!jsonFileMemo.has(name)) {
+    const memo = jsonFileMemo;
+    const promise = download();
+    promise.catch(() => memo.delete(name));
+    memo.set(name, promise);
+  }
+  return jsonFileMemo.get(name);
+}
+
 function translator(dict) {
   return (key, fallback) => (key && dict[key]) || fallback;
 }
@@ -406,7 +422,7 @@ function convertJsonTasks({ tasks, tasks_es, traders_es, maps_es, items_es }) {
 }
 
 async function fetchTasksFromJsonApi() {
-  const files = await Promise.all(JSON_API_FILES.map((name) => withRetry(() => fetchJsonFile(name))));
+  const files = await Promise.all(JSON_API_FILES.map(fetchJsonFileOnce));
   const byName = Object.fromEntries(JSON_API_FILES.map((name, i) => [name, files[i]]));
   return convertJsonTasks(byName);
 }
@@ -416,7 +432,7 @@ async function fetchTasksFromJsonApi() {
 // no es grave: la interfaz usa el nombre en español.
 async function attachEnglishNames(tasks) {
   try {
-    const en = await withRetry(() => fetchJsonFile('tasks_en'));
+    const en = await fetchJsonFileOnce('tasks_en');
     return tasks.map((t) => ({ ...t, nameEn: en[`${t.id} name`] || null }));
   } catch (err) {
     console.warn('[tarkov-tracker] no se pudieron obtener los nombres en inglés:', err.message);
@@ -425,9 +441,14 @@ async function attachEnglishNames(tasks) {
 }
 
 async function fetchTasksFromApi() {
-  const { source, tasks } = await fetchTasksFromAnySource();
-  const [withNames, maps] = await Promise.all([attachEnglishNames(tasks), fetchMapData(tasks)]);
-  return { source, tasks: withNames, maps };
+  jsonFileMemo = new Map();
+  try {
+    const { source, tasks } = await fetchTasksFromAnySource();
+    const [withNames, maps] = await Promise.all([attachEnglishNames(tasks), fetchMapData(tasks)]);
+    return { source, tasks: withNames, maps };
+  } finally {
+    jsonFileMemo = null;
+  }
 }
 
 // Primero los archivos JSON (son los únicos que traen los datos de
@@ -497,8 +518,132 @@ async function fetchMapConfigs() {
   return configs;
 }
 
-// { byId: { <mapId>: { key, name } }, configs: { <key>: config } }. Si algo
-// falla, el planificador funciona igual pero sin dibujo de los mapas.
+// ---- Información de cada mapa: extracciones, bosses y contenedores ----
+//
+// Sale del archivo "maps" de json.tarkov.dev (unos 8 MB) y se reduce a lo
+// que dibuja el planificador, con los textos ya en español:
+//   extracts:   [{ name, faction: pmc|scav|shared, x, y, z, pay?, secret? }]
+//   transits:   [{ name, x, y, z }]
+//   bosses:     [{ name, image, chance, zones, escorts, time, trigger }]
+//   bossSpots:  [{ zone, bosses: [nombre], x, y, z }]
+//   containers: { types: { <tipo>: nombre }, points: [[tipo, x, y, z]] }
+
+const ROUBLES_ID = '5449016a4bdc2d6f028b456f';
+
+// Un punto por zona de spawn: la posición real más cercana al centro de
+// todas las de la zona (así cae dentro del edificio y en su planta).
+function zoneCenter(positions) {
+  if (!positions.length) return null;
+  const cx = positions.reduce((s, p) => s + p.x, 0) / positions.length;
+  const cz = positions.reduce((s, p) => s + p.z, 0) / positions.length;
+  let best = positions[0];
+  for (const p of positions) {
+    if (Math.hypot(p.x - cx, p.z - cz) < Math.hypot(best.x - cx, best.z - cz)) best = p;
+  }
+  return best;
+}
+
+function convertMapIntel(map, { mobs, lootContainers }, es, itemsEs) {
+  const r1 = (n) => Math.round(n * 10) / 10;
+  const pt = (p) => ({ x: r1(p.x), y: r1(p.y), z: r1(p.z) });
+  const tr = (key, fallback) => (key && es[key]) || fallback || key;
+
+  const extracts = (map.extracts || []).filter((e) => e.position).map((e) => {
+    const out = { name: tr(e.name), faction: e.faction || 'shared', ...pt(e.position) };
+    if (e.transferItem) {
+      const { item, count } = e.transferItem;
+      out.pay = item === ROUBLES_ID
+        ? `${Number(count).toLocaleString('es-ES')} ₽`
+        : `${(itemsEs && itemsEs[`${item} Name`]) || item}${count > 1 ? ` x${count}` : ''}`;
+    }
+    if (/_secret_/i.test(e.name)) out.secret = true;
+    return out;
+  });
+
+  const transits = (map.transits || []).filter((t) => t.position)
+    .map((t) => ({ name: tr(t.description, 'Tránsito'), ...pt(t.position) }));
+
+  // Un boss puede venir varias veces (p. ej. varios grupos de Rogues): se
+  // junta en una entrada con la probabilidad más alta y todas sus zonas.
+  const bosses = new Map();
+  const zones = new Map(); // spawnKey -> { name, positions, bosses: Set }
+  for (const b of map.bosses || []) {
+    const mob = (mobs && mobs[b.mob]) || {};
+    const name = tr(b.mob, mob.name);
+    let entry = bosses.get(b.mob);
+    if (!entry) {
+      entry = {
+        name,
+        image: mob.imagePortraitLink || null,
+        chance: 0,
+        groups: 0,
+        zones: [],
+        escorts: 0,
+        time: null,
+        trigger: false,
+      };
+      bosses.set(b.mob, entry);
+    }
+    entry.chance = Math.max(entry.chance, b.spawnChance || 0);
+    entry.groups++;
+    const escorts = (b.escorts || []).reduce((sum, e) =>
+      sum + Math.max(0, ...((e.amount || []).map((a) => a.count || 0))), 0);
+    entry.escorts = Math.max(entry.escorts, escorts);
+    if (b.spawnTime > 0) entry.time = entry.time == null ? b.spawnTime : Math.min(entry.time, b.spawnTime);
+    if (b.spawnTrigger) entry.trigger = true;
+    for (const l of b.spawnLocations || []) {
+      const zoneName = tr(l.spawnKey, l.name);
+      if (!entry.zones.includes(zoneName)) entry.zones.push(zoneName);
+      let z = zones.get(l.spawnKey);
+      if (!z) zones.set(l.spawnKey, (z = { name: zoneName, positions: l.positions || [], bosses: new Set() }));
+      z.bosses.add(name);
+    }
+  }
+  const bossSpots = [];
+  for (const z of zones.values()) {
+    const c = zoneCenter(z.positions);
+    if (c) bossSpots.push({ zone: z.name, bosses: [...z.bosses], ...pt(c) });
+  }
+
+  const types = {};
+  const points = [];
+  for (const c of map.lootContainers || []) {
+    const info = lootContainers && lootContainers[c.lootContainer];
+    if (!info || !c.position) continue;
+    const type = info.normalizedName || c.lootContainer;
+    if (!types[type]) types[type] = tr(info.name, type);
+    points.push([type, r1(c.position.x), r1(c.position.y), r1(c.position.z)]);
+  }
+
+  return {
+    extracts,
+    transits,
+    bosses: [...bosses.values()].sort((a, b) => b.chance - a.chance || a.name.localeCompare(b.name)),
+    bossSpots,
+    containers: { types, points },
+  };
+}
+
+// { <clave de mapa>: intel }. Solo la variante principal de cada mapa (no
+// Factory de noche ni Ground Zero 21+, que comparten dibujo).
+async function fetchMapIntel(es) {
+  const [data, itemsEs] = await Promise.all([
+    fetchJsonFileOnce('maps'),
+    fetchJsonFileOnce('items_es').catch(() => null),
+  ]);
+  const intel = {};
+  const maps = Array.isArray(data.maps) ? data.maps : Object.values(data.maps || {});
+  for (const map of maps) {
+    const key = map.normalizedName;
+    if (!key || MAP_KEY_ALIASES[key]) continue;
+    intel[key] = convertMapIntel(map, data, es, itemsEs);
+  }
+  return intel;
+}
+
+// { byId: { <mapId>: { key, name } }, configs: { <key>: config }, intel }.
+// Si algo falla, el planificador funciona igual pero sin dibujo de los
+// mapas o sin extracciones, bosses y contenedores.
 async function fetchMapData(tasks) {
   const mapIds = new Set();
   for (const t of tasks) {
@@ -507,20 +652,24 @@ async function fetchMapData(tasks) {
   }
   const byId = {};
   let configs = {};
+  let intel = {};
   try {
-    const [en, es] = await Promise.all([
-      withRetry(() => fetchJsonFile('maps_en')),
-      withRetry(() => fetchJsonFile('maps_es')),
-    ]);
+    const [en, es] = await Promise.all([fetchJsonFileOnce('maps_en'), fetchJsonFileOnce('maps_es')]);
     for (const id of mapIds) {
       const normalized = normalizeMapName(en[`${id} Name`]);
       byId[id] = { key: MAP_KEY_ALIASES[normalized] || normalized, name: es[`${id} Name`] || en[`${id} Name`] || id };
     }
-    configs = await withRetry(fetchMapConfigs);
+    [configs, intel] = await Promise.all([
+      withRetry(fetchMapConfigs),
+      fetchMapIntel(es).catch((err) => {
+        console.warn('[tarkov-tracker] no se pudo obtener la información de los mapas:', err.message);
+        return {};
+      }),
+    ]);
   } catch (err) {
     console.warn('[tarkov-tracker] no se pudieron obtener los datos de mapas:', err.message);
   }
-  return { byId, configs };
+  return { byId, configs, intel };
 }
 
 // SVG de un mapa, descargado una vez y guardado en userData/maps. Se limpia
@@ -643,7 +792,8 @@ app.on('window-all-closed', () => {
 // con otra versión se marcan "stale" y el renderer las actualiza sola.
 // 2 = nombres en inglés (nameEn) y requisitos de comerciante.
 // 3 = datos de planificación de raid y configuración de mapas.
-const CACHE_VERSION = 3;
+// 4 = extracciones, bosses y contenedores de cada mapa (maps.intel).
+const CACHE_VERSION = 4;
 
 ipcMain.handle('quests:getCached', () => {
   const cached = readJSONSafe(CACHE_FILE(), null);
