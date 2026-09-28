@@ -131,6 +131,8 @@ const el = {
   detailPanel: document.getElementById('detailPanel'),
   gameLogStatus: document.getElementById('gameLogStatus'),
   gameLogFolderBtn: document.getElementById('gameLogFolderBtn'),
+  filtersBtn: document.getElementById('filtersBtn'),
+  filtersClose: document.getElementById('filtersClose'),
 };
 
 // ---------------- Helpers ----------------
@@ -613,6 +615,8 @@ function renderDetail() {
 
 function renderDetailInner() {
   const task = state.byId.get(state.selectedTaskId);
+  // En pantallas estrechas el detalle ocupa toda la pantalla (ver style.css).
+  document.body.classList.toggle('detail-open', !!task);
   if (!task) {
     el.detailPanel.innerHTML = `
       <div class="empty-detail">
@@ -626,6 +630,13 @@ function renderDetailInner() {
   const wrap = document.createElement('div');
 
   // Head
+  // Solo visible en pantallas estrechas, donde el detalle tapa la lista.
+  const back = document.createElement('button');
+  back.className = 'btn btn-small detail-back';
+  back.textContent = '← VOLVER A LA LISTA';
+  back.addEventListener('click', () => selectTask(null));
+  wrap.appendChild(back);
+
   const head = document.createElement('div');
   head.className = 'detail-head';
   head.innerHTML = `
@@ -982,6 +993,12 @@ function handleGameLogResult(result) {
     setStatus(result.error, 'error');
     return;
   }
+  // En el móvil: los logs los lee el PC y sus cambios llegan como progreso.
+  if (result.remote) {
+    el.gameLogStatus.textContent = 'Los logs del juego los lee Raid Tracker en el PC: lo que hagas en Tarkov aparece aquí solo.';
+    el.gameLogFolderBtn.hidden = true;
+    return;
+  }
   gameLogsDir = result.logsDir;
   const applied = applyGameEvents(result.events);
   resolveActiveCharacter(result.events);
@@ -1233,6 +1250,14 @@ function wireStaticEvents() {
   });
 
   window.addEventListener('beforeunload', flushPendingSave);
+  // En el móvil, beforeunload casi nunca llega: se guarda al pasar a
+  // segundo plano (cambiar de app, bloquear la pantalla).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPendingSave();
+  });
+
+  el.filtersBtn.addEventListener('click', () => document.body.classList.toggle('filters-open'));
+  el.filtersClose.addEventListener('click', () => document.body.classList.remove('filters-open'));
 
   el.searchInput.addEventListener('input', () => {
     state.filters.search = el.searchInput.value.trim();

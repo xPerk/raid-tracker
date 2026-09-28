@@ -53,6 +53,12 @@ Requiere Windows 10 u 11.
   detecta automáticamente (Steam o launcher de BSG); si no, usa
   **ELEGIR CARPETA DEL JUEGO**. Solo lee archivos de log: no toca el
   proceso ni la memoria del juego.
+- **En el móvil** (botón **MÓVIL**): con el PC y el teléfono en la misma
+  WiFi, escanea el código QR y tendrás la lista, el detalle y Planificar
+  raid en el navegador del móvil (se puede añadir a la pantalla de inicio).
+  Todo se guarda en el PC y se ve en ambos al instante, incluido lo que
+  marcan los logs del juego. Nada sale de tu red local; **NUEVO CÓDIGO**
+  desvincula los móviles.
 - Dos personajes con progreso independiente, **PERMANENTE** y
   **TEMPORADA**, que se eligen arriba. Cada uno tiene su nivel, sus
   misiones y sus objetivos. Al leer los logs, cada misión va al personaje con
@@ -101,7 +107,8 @@ Todo se guarda solo en tu PC, en `%APPDATA%\tarkov-quest-tracker\`:
 - `progress.json`: tu progreso (por personaje).
 - `quests-cache.json`: las misiones descargadas de tarkov.dev.
 - `maps\`: los mapas descargados.
-- `settings.json`: carpeta del juego y posición de la ventana del planificador.
+- `settings.json`: carpeta del juego, posición de la ventana del planificador
+  y el acceso desde el móvil (activado o no, puerto y código de vinculación).
 
 Para empezar de cero, cierra la app y borra esa carpeta.
 
@@ -148,6 +155,9 @@ una Release, y en un fork funciona igual.
 | `src/renderer/app.js` | Interfaz principal: lista, detalle, filtros, personajes, sincronización. |
 | `src/renderer/taskmap.js` | Vista ÁRBOL (disposición de las cadenas de misiones). |
 | `src/renderer/raidplanner.js` | Planificar raid: mochila, objetivos y visor de mapas. |
+| `src/lanserver.js` | Servidor en la red local para usar la app desde el móvil. |
+| `src/renderer/remote.js` | En el móvil, sustituye al preload por llamadas HTTP al PC. |
+| `src/renderer/mobile.js` | Diálogo MÓVIL: activar el servidor y código QR. |
 | `build/icon.svg` | Icono original (de él salen `icon.ico` e `icon.png`). |
 
 ## Créditos y licencias

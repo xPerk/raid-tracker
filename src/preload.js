@@ -17,4 +17,8 @@ contextBridge.exposeInMainWorld('tarkovAPI', {
   attachPlanner: () => ipcRenderer.invoke('planner:attach'),
   onPlannerWindowClosed: (callback) => ipcRenderer.on('planner:windowClosed', () => callback()),
   onPlannerOpenInMain: (callback) => ipcRenderer.on('planner:openInMain', () => callback()),
+  getMobileStatus: () => ipcRenderer.invoke('mobile:getStatus'),
+  setMobileEnabled: (enabled) => ipcRenderer.invoke('mobile:setEnabled', enabled),
+  newMobileToken: () => ipcRenderer.invoke('mobile:newToken'),
+  onMobileStatus: (callback) => ipcRenderer.on('mobile:status', (_event, status) => callback(status)),
 });

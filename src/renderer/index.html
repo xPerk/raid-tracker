@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' https: data:; script-src 'self'; connect-src 'self';" />
 <title>RAID // TRACKER</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -42,8 +43,14 @@
         <span class="raid-dot"></span> PLANIFICAR RAID <span id="plannerBadge" class="raid-badge" hidden></span>
       </button>
 
+      <button id="filtersBtn" class="btn btn-outline mobile-only">FILTROS</button>
+
       <button id="refreshBtn" class="btn btn-outline" title="Sincronizar misiones con tarkov.dev">
         <span class="btn-dot"></span><span class="btn-label">SINCRONIZAR</span>
+      </button>
+
+      <button id="mobileBtn" class="btn btn-outline desktop-only" title="Usar Raid Tracker en el móvil por WiFi">
+        <span id="mobileDot" class="btn-dot"></span><span class="btn-label">MÓVIL</span>
       </button>
     </div>
   </header>
@@ -54,6 +61,8 @@
 
     <!-- LEFT: filters -->
     <aside class="panel panel-filters">
+      <button id="filtersClose" class="btn mobile-only">← VER MISIONES</button>
+
       <section class="filter-group" id="statusGroup">
         <h3>ESTADO</h3>
         <div class="chip-row" id="statusFilters">
@@ -131,8 +140,23 @@
 
   <div id="raidPlanner" class="raid-planner" role="dialog" aria-label="Planificar raid" hidden></div>
 
+  <div id="mobileDialog" class="modal" role="dialog" aria-modal="true" aria-labelledby="mobileTitle" hidden>
+    <div class="modal-box">
+      <header class="modal-head">
+        <h2 id="mobileTitle">RAID TRACKER EN EL MÓVIL</h2>
+        <button id="mobileClose" class="btn btn-small" title="Cerrar (Esc)">✕</button>
+      </header>
+      <label class="toggle-row">
+        <input type="checkbox" id="mobileToggle" />
+        <span>PERMITIR CONEXIÓN DESDE LA RED WIFI</span>
+      </label>
+      <div id="mobileBody"></div>
+    </div>
+  </div>
+
   <script src="taskmap.js"></script>
   <script src="raidplanner.js"></script>
   <script src="app.js"></script>
+  <script src="mobile.js"></script>
 </body>
 </html>

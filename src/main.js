@@ -1,7 +1,9 @@
 const { app, BrowserWindow, ipcMain, shell, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const QRCode = require('qrcode');
 const { GameLogReader, detectLogsDir, resolveLogsDir } = require('./gamelogs');
+const { createLanServer, lanAddresses, newToken } = require('./lanserver');
 
 // La app se llama "Raid Tracker", pero sus datos (progreso, caché, mapas,
 // preferencias) siguen en la carpeta del nombre original para no perder
@@ -776,6 +778,7 @@ function openPlannerWindow() {
 app.whenReady().then(() => {
   ensureUserDataDir();
   createWindow();
+  if (mobileSettings().enabled) startMobileServer();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -795,16 +798,16 @@ app.on('window-all-closed', () => {
 // 4 = extracciones, bosses y contenedores de cada mapa (maps.intel).
 const CACHE_VERSION = 4;
 
-ipcMain.handle('quests:getCached', () => {
+function getCachedQuests() {
   const cached = readJSONSafe(CACHE_FILE(), null);
   if (!cached) return null;
   return { ...cached, stale: cached.version !== CACHE_VERSION };
-});
+}
 
 // Devolvemos el error como dato en vez de lanzarlo: así el renderer recibe
 // un mensaje limpio (sin el prefijo "Error invoking remote method...") y
 // sabe si fue una caída temporal de tarkov.dev.
-ipcMain.handle('quests:refresh', async () => {
+async function refreshQuests() {
   try {
     const { source, tasks, maps } = await fetchTasksFromApi();
     const payload = { version: CACHE_VERSION, fetchedAt: new Date().toISOString(), source, tasks, maps };
@@ -814,20 +817,27 @@ ipcMain.handle('quests:refresh', async () => {
     console.error('[tarkov-tracker] no se pudo sincronizar:', err);
     return { error: { message: err.message || String(err), transient: !!err.transient } };
   }
-});
+}
 
-ipcMain.handle('progress:get', () => {
+function getProgress() {
   const progress = normalizeProgress(readJSONSafe(PROGRESS_FILE(), null));
   if (progress.legacy) backupLegacyProgress();
   return progress;
-});
+}
 
-// Con la ventana del planificador abierta hay dos renderers editando el
-// mismo progreso: cada guardado se reenvía a las demás ventanas.
-function broadcastProgress(sender, saved) {
+ipcMain.handle('quests:getCached', () => getCachedQuests());
+ipcMain.handle('quests:refresh', () => refreshQuests());
+ipcMain.handle('progress:get', () => getProgress());
+
+// Con la ventana del planificador abierta, o con el móvil conectado, hay
+// varios editando el mismo progreso: cada guardado se reenvía a los demás.
+// "sender" es el webContents que guardó (null si fue un móvil) y
+// "exceptClient", el móvil que guardó.
+function broadcastProgress(sender, saved, exceptClient = null) {
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && win.webContents !== sender) win.webContents.send('progress:updated', saved);
   }
+  if (mobileServer) mobileServer.pushProgress(saved, exceptClient);
 }
 
 ipcMain.handle('progress:save', (event, progress) => {
@@ -838,14 +848,16 @@ ipcMain.handle('progress:save', (event, progress) => {
 
 // ---- Mapas y planificador ----
 
-ipcMain.handle('maps:getSvg', async (_event, key) => {
+async function getMapSvgResult(key) {
   try {
     return { svg: await getMapSvg(String(key)) };
   } catch (err) {
     console.error('[tarkov-tracker] no se pudo obtener el mapa', key, err.message);
     return { error: err.message };
   }
-});
+}
+
+ipcMain.handle('maps:getSvg', (_event, key) => getMapSvgResult(key));
 
 ipcMain.handle('planner:openWindow', () => openPlannerWindow());
 ipcMain.handle('planner:closeWindow', () => {
@@ -921,4 +933,113 @@ ipcMain.on('progress:saveSync', (event, progress) => {
     console.error('No se pudo guardar el progreso al cerrar', err);
     event.returnValue = false;
   }
+});
+
+// ---- Móvil: servidor en la red local ----
+
+const MOBILE_DEFAULT_PORT = 38470;
+let mobileServer = null;
+let mobileError = null;
+
+function mobileSettings() {
+  const m = readSettings().mobile || {};
+  return { enabled: !!m.enabled, token: m.token || null, port: m.port || MOBILE_DEFAULT_PORT };
+}
+
+function saveMobileSettings(changes) {
+  writeJSONSafe(SETTINGS_FILE(), { ...readSettings(), mobile: { ...mobileSettings(), ...changes } });
+}
+
+function mobileToken() {
+  let { token } = mobileSettings();
+  if (!token) {
+    token = newToken();
+    saveMobileSettings({ token });
+  }
+  return token;
+}
+
+// Un guardado del móvil se rechaza si partía de un progreso que ya cambió
+// (p. ej. los logs marcaron una misión mientras el móvil dormía): el móvil
+// recibe el actual en vez de pisarlo.
+function saveProgressFromMobile(progress, { client, base }) {
+  const current = readJSONSafe(PROGRESS_FILE(), null);
+  if (base && current && current.updatedAt && current.updatedAt !== base) {
+    return { conflict: getProgress() };
+  }
+  const saved = saveProgress(progress);
+  broadcastProgress(null, saved, client);
+  return { saved };
+}
+
+async function mobileStatus() {
+  const { enabled } = mobileSettings();
+  const running = !!(mobileServer && mobileServer.running);
+  const status = { enabled, running, error: mobileError, clients: running ? mobileServer.clientCount : 0, urls: [] };
+  if (!running) return status;
+  const token = mobileToken();
+  status.urls = lanAddresses().map((a) => ({
+    adapter: a.name,
+    url: `http://${a.address}:${mobileServer.port}/?t=${encodeURIComponent(token)}`,
+  }));
+  if (status.urls.length) status.qr = await QRCode.toDataURL(status.urls[0].url, { margin: 1, width: 240 });
+  return status;
+}
+
+function sendMobileStatus() {
+  mobileStatus().then((status) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mobile:status', status);
+  });
+}
+
+async function startMobileServer() {
+  if (!mobileServer) {
+    mobileServer = createLanServer({
+      rendererDir: path.join(__dirname, 'renderer'),
+      iconFile: path.join(__dirname, 'icon.png'),
+      getToken: mobileToken,
+      onClientsChanged: sendMobileStatus,
+      handlers: {
+        getQuests: getCachedQuests,
+        refreshQuests,
+        getProgress,
+        saveProgress: saveProgressFromMobile,
+        getMapSvg: getMapSvgResult,
+      },
+    });
+  }
+  mobileError = null;
+  try {
+    const port = await mobileServer.start(mobileSettings().port);
+    // Si el puerto preferido estaba ocupado se recuerda el nuevo, para que
+    // el enlace guardado en el móvil siga valiendo la próxima vez.
+    if (port !== mobileSettings().port) saveMobileSettings({ port });
+  } catch (err) {
+    console.error('[raid-tracker] no se pudo iniciar el servidor para el móvil:', err);
+    mobileError = err.code === 'EADDRINUSE'
+      ? 'Los puertos de red que usa Raid Tracker están ocupados por otro programa.'
+      : err.message || String(err);
+  }
+  sendMobileStatus();
+}
+
+function stopMobileServer() {
+  if (mobileServer) mobileServer.stop();
+  mobileError = null;
+}
+
+ipcMain.handle('mobile:getStatus', () => mobileStatus());
+
+ipcMain.handle('mobile:setEnabled', async (_event, enabled) => {
+  saveMobileSettings({ enabled: !!enabled });
+  if (enabled) await startMobileServer();
+  else stopMobileServer();
+  return mobileStatus();
+});
+
+// Nuevo código: el anterior deja de valer y los móviles vinculados se desconectan.
+ipcMain.handle('mobile:newToken', () => {
+  saveMobileSettings({ token: newToken() });
+  if (mobileServer) mobileServer.disconnectAll();
+  return mobileStatus();
 });

@@ -300,20 +300,47 @@ const RaidPlanner = (() => {
         this.zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.2 : 1 / 1.2);
       }, { passive: false });
 
+      // Un dedo (o el ratón) arrastra; dos dedos acercan o alejan.
       let drag = null;
+      let pinch = null;
+      const pointers = new Map();
+      const twoFingers = () => {
+        const [a, b] = [...pointers.values()];
+        return { dist: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      };
       this.viewport.addEventListener('pointerdown', (e) => {
         if (!this.ready || e.button !== 0 || e.target.closest('.rp-marker, .rp-boss-card')) return;
-        drag = { x: e.clientX, y: e.clientY, tx: this.tx, ty: this.ty };
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         this.viewport.setPointerCapture(e.pointerId);
+        if (pointers.size === 2) {
+          drag = null;
+          pinch = twoFingers();
+          return;
+        }
+        drag = { x: e.clientX, y: e.clientY, tx: this.tx, ty: this.ty };
         this.viewport.classList.add('dragging');
       });
       this.viewport.addEventListener('pointermove', (e) => {
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinch && pointers.size === 2) {
+          const now = twoFingers();
+          const r = this.viewport.getBoundingClientRect();
+          if (pinch.dist > 0) this.zoomAt(now.x - r.left, now.y - r.top, now.dist / pinch.dist);
+          this.tx += now.x - pinch.x;
+          this.ty += now.y - pinch.y;
+          this.apply();
+          pinch = now;
+          return;
+        }
         if (!drag) return;
         this.tx = drag.tx + (e.clientX - drag.x);
         this.ty = drag.ty + (e.clientY - drag.y);
         this.apply();
       });
-      const end = () => {
+      const end = (e) => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) pinch = null;
         drag = null;
         this.viewport.classList.remove('dragging');
       };
@@ -801,7 +828,7 @@ const RaidPlanner = (() => {
     const newRaid = el('button', 'btn btn-small rp-action');
     newRaid.textContent = 'NUEVA RAID';
     newRaid.title = 'Vacía la mochila y quita las misiones ya completadas';
-    const dock = el('button', 'btn btn-small rp-action');
+    const dock = el('button', 'btn btn-small rp-action rp-dock');
     dock.textContent = ctx.mode === 'window' ? '▣ INTEGRAR EN LA APP' : '⧉ VENTANA APARTE';
     head.append(title, charTag, spacer, newRaid, dock);
     if (ctx.mode === 'overlay') {
