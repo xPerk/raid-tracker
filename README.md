@@ -100,6 +100,15 @@ comerciante; la cadena de la misión elegida queda resaltada.
 
 ![Vista árbol con la cadena de Químico resaltada](docs/screenshots/arbol.png)
 
+**En el móvil**: la lista, el detalle de una misión y Planificar raid en el
+navegador del teléfono, con el mismo progreso que el PC.
+
+![Raid Tracker en el móvil: lista de misiones, detalle de Químico - Parte 2 y Planificar raid en Shoreline](docs/screenshots/movil.png)
+
+Para vincularlo, pulsa **MÓVIL** en el PC y escanea el código QR.
+
+![Diálogo MÓVIL con el código QR y un móvil conectado](docs/screenshots/movil-qr.png)
+
 ## Tus datos
 
 Todo se guarda solo en tu PC, en `%APPDATA%\tarkov-quest-tracker\`:
